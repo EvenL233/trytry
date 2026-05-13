@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import CoinRain from './components/CoinRain';
 
@@ -179,9 +178,10 @@ export default function App() {
     return workDays;
   };
 
-  const updateEarnings = (deltaTime) => {
+  const updateEarnings = () => {
     const { workStartTime, workEndTime, lunchBreakStart, lunchBreakEnd, dinnerBreakStart, dinnerBreakEnd } = settings;
     const now = new Date();
+    
     const [startHour, startMin] = workStartTime.split(':').map(Number);
     const [endHour, endMin] = workEndTime.split(':').map(Number);
     
@@ -198,102 +198,66 @@ export default function App() {
     let isBreak = false;
     let breakLabel = '';
     
-    if (lunchBreakStart && lunchBreakEnd) {
-      const [lunchStartHour, lunchStartMin] = lunchBreakStart.split(':').map(Number);
-      const [lunchEndHour, lunchEndMin] = lunchBreakEnd.split(':').map(Number);
-      const lunchStartTotal = lunchStartHour * 60 + lunchStartMin;
-      const lunchEndTotal = lunchEndHour * 60 + lunchEndMin;
-      
-      if (currentMinutes >= lunchStartTotal && currentMinutes < lunchEndTotal) {
-        isBreak = true;
-        breakLabel = '🍽️ 午餐休息中...';
-      }
-    }
+    const lunchMinutes = {
+      start: lunchBreakStart ? lunchBreakStart.split(':').map(Number).reduce((h, m) => h * 60 + m, 0) : -1,
+      end: lunchBreakEnd ? lunchBreakEnd.split(':').map(Number).reduce((h, m) => h * 60 + m, 0) : -1
+    };
     
-    if (!isBreak && dinnerBreakStart && dinnerBreakEnd) {
-      const [dinnerStartHour, dinnerStartMin] = dinnerBreakStart.split(':').map(Number);
-      const [dinnerEndHour, dinnerEndMin] = dinnerBreakEnd.split(':').map(Number);
-      const dinnerStartTotal = dinnerStartHour * 60 + dinnerStartMin;
-      const dinnerEndTotal = dinnerEndHour * 60 + dinnerEndMin;
-      
-      if (currentMinutes >= dinnerStartTotal && currentMinutes < dinnerEndTotal) {
-        isBreak = true;
-        breakLabel = '🍜 晚餐休息中...';
-      }
+    const dinnerMinutes = {
+      start: dinnerBreakStart ? dinnerBreakStart.split(':').map(Number).reduce((h, m) => h * 60 + m, 0) : -1,
+      end: dinnerBreakEnd ? dinnerBreakEnd.split(':').map(Number).reduce((h, m) => h * 60 + m, 0) : -1
+    };
+    
+    if (lunchMinutes.start >= 0 && lunchMinutes.end >= 0 && 
+        currentMinutes >= lunchMinutes.start && currentMinutes < lunchMinutes.end) {
+      isBreak = true;
+      breakLabel = '🍽️ 午餐休息中...';
+    } else if (dinnerMinutes.start >= 0 && dinnerMinutes.end >= 0 && 
+               currentMinutes >= dinnerMinutes.start && currentMinutes < dinnerMinutes.end) {
+      isBreak = true;
+      breakLabel = '🍜 晚餐休息中...';
     }
     
     setIsOnBreak(isBreak);
     setBreakType(breakLabel);
     
-    if (isBreak) {
-      setCurrentEarnings(0);
-      setWorkProgress(0);
-    } else if (now.getTime() < startTime.getTime()) {
+    const totalWorkMinutes = calculateTotalWorkMinutes();
+    const earningsPerSecond = calculateEarningsPerSecond();
+    
+    if (now.getTime() < startTime.getTime()) {
       setCurrentEarnings(0);
       setWorkProgress(0);
     } else if (now.getTime() >= endTime.getTime()) {
-      const totalWorkMs = calculateTotalWorkMinutes() * 60 * 1000;
-      const earningsPerSecond = calculateEarningsPerSecond();
-      const totalEarnings = (totalWorkMs / 1000) * earningsPerSecond;
+      const totalEarnings = totalWorkMinutes * 60 * earningsPerSecond;
       setCurrentEarnings(totalEarnings);
       setWorkProgress(100);
     } else {
-      let totalWorkMs = endTime.getTime() - startTime.getTime();
-      let elapsedMs = now.getTime() - startTime.getTime();
+      let elapsedMinutes = currentMinutes - startTotalMinutes;
+      let breakMinutes = 0;
       
-      if (lunchBreakStart && lunchBreakEnd) {
-        const [lunchStartHour, lunchStartMin] = lunchBreakStart.split(':').map(Number);
-        const [lunchEndHour, lunchEndMin] = lunchBreakEnd.split(':').map(Number);
-        const lunchStartTime = new Date(now);
-        lunchStartTime.setHours(lunchStartHour, lunchStartMin, 0, 0);
-        const lunchEndTime = new Date(now);
-        lunchEndTime.setHours(lunchEndHour, lunchEndMin, 0, 0);
-        
-        if (now.getTime() >= lunchStartTime.getTime() && now.getTime() < lunchEndTime.getTime()) {
-          elapsedMs = lunchStartTime.getTime() - startTime.getTime();
-        } else if (now.getTime() >= lunchEndTime.getTime()) {
-          elapsedMs -= (lunchEndTime.getTime() - lunchStartTime.getTime());
+      if (lunchMinutes.start >= 0 && lunchMinutes.end >= 0) {
+        const lunchDuration = lunchMinutes.end - lunchMinutes.start;
+        if (currentMinutes >= lunchMinutes.end) {
+          breakMinutes += lunchDuration;
+        } else if (currentMinutes > lunchMinutes.start) {
+          breakMinutes += currentMinutes - lunchMinutes.start;
         }
-        
-        totalWorkMs -= (lunchEndTime.getTime() - lunchStartTime.getTime());
       }
       
-      if (dinnerBreakStart && dinnerBreakEnd) {
-        const [dinnerStartHour, dinnerStartMin] = dinnerBreakStart.split(':').map(Number);
-        const [dinnerEndHour, dinnerEndMin] = dinnerBreakEnd.split(':').map(Number);
-        const dinnerStartTime = new Date(now);
-        dinnerStartTime.setHours(dinnerStartHour, dinnerStartMin, 0, 0);
-        const dinnerEndTime = new Date(now);
-        dinnerEndTime.setHours(dinnerEndHour, dinnerEndMin, 0, 0);
-        
-        if (now.getTime() >= dinnerStartTime.getTime() && now.getTime() < dinnerEndTime.getTime()) {
-          elapsedMs = dinnerStartTime.getTime() - startTime.getTime();
-          
-          if (lunchBreakStart && lunchBreakEnd) {
-            const [lunchStartHour, lunchStartMin] = lunchBreakStart.split(':').map(Number);
-            const [lunchEndHour, lunchEndMin] = lunchBreakEnd.split(':').map(Number);
-            const lunchStartTime = new Date(now);
-            lunchStartTime.setHours(lunchStartHour, lunchStartMin, 0, 0);
-            const lunchEndTime = new Date(now);
-            lunchEndTime.setHours(lunchEndHour, lunchEndMin, 0, 0);
-            if (lunchEndTime.getTime() < dinnerStartTime.getTime()) {
-              elapsedMs -= (lunchEndTime.getTime() - lunchStartTime.getTime());
-            }
-          }
-        } else if (now.getTime() >= dinnerEndTime.getTime()) {
-          elapsedMs -= (dinnerEndTime.getTime() - dinnerStartTime.getTime());
+      if (dinnerMinutes.start >= 0 && dinnerMinutes.end >= 0) {
+        const dinnerDuration = dinnerMinutes.end - dinnerMinutes.start;
+        if (currentMinutes >= dinnerMinutes.end) {
+          breakMinutes += dinnerDuration;
+        } else if (currentMinutes > dinnerMinutes.start) {
+          breakMinutes += currentMinutes - dinnerMinutes.start;
         }
-        
-        totalWorkMs -= (dinnerEndTime.getTime() - dinnerStartTime.getTime());
       }
       
-      const progress = totalWorkMs > 0 ? Math.min(100, (elapsedMs / totalWorkMs) * 100) : 0;
+      const workMinutesSoFar = Math.max(0, elapsedMinutes - breakMinutes);
+      const progress = totalWorkMinutes > 0 ? Math.min(100, (workMinutesSoFar / totalWorkMinutes) * 100) : 0;
       setWorkProgress(progress);
       
-      const earningsPerSecond = calculateEarningsPerSecond();
-      const elapsedSeconds = elapsedMs / 1000;
-      const earnings = elapsedSeconds * earningsPerSecond;
-      
+      const earnings = workMinutesSoFar * 60 * earningsPerSecond;
       setCurrentEarnings(earnings);
     }
     
@@ -301,13 +265,10 @@ export default function App() {
     const passedWorkDays = calculatePassedWorkDays();
     setWorkDaysInfo({ passed: passedWorkDays, total: totalWorkDays });
     
-    const earningsPerSecond = calculateEarningsPerSecond();
     const workMinutesPerDay = calculateTotalWorkMinutes();
     const secondsPerDay = workMinutesPerDay * 60;
     
-    const totalWorkDaysInMonth = calculateWorkDaysInMonth();
     const elapsedWorkDays = calculatePassedWorkDays();
-    
     const todayEarnings = currentEarnings || 0;
     const monthlyEarningsValue = (elapsedWorkDays * secondsPerDay * earningsPerSecond) + todayEarnings;
     setMonthlyEarnings(monthlyEarningsValue);
@@ -315,14 +276,9 @@ export default function App() {
 
   useEffect(() => {
     let animationFrameId;
-    let lastTime = Date.now();
     
     const animate = () => {
-      const now = Date.now();
-      const deltaTime = now - lastTime;
-      lastTime = now;
-      
-      updateEarnings(deltaTime);
+      updateEarnings();
       animationFrameId = requestAnimationFrame(animate);
     };
     
@@ -345,17 +301,21 @@ export default function App() {
     };
   }, []);
 
+  const VALID_CURRENCIES = ['¥', '$', '€', '£'];
+  
   const formatCurrency = (amount) => {
-    return settings.currency + amount.toFixed(2);
+    const currency = VALID_CURRENCIES.includes(settings.currency) 
+      ? settings.currency 
+      : '¥';
+    return currency + amount.toFixed(2);
   };
 
   const handleSalaryChange = (e) => {
     const value = e.target.value;
-    if (value === '' || /^\d+$/.test(value)) {
-      setSalaryInput(value);
-      if (value !== '') {
-        setSettings({ ...settings, salary: Number(value) });
-      }
+    const cleanedValue = value.replace(/[^\d]/g, '');
+    setSalaryInput(cleanedValue);
+    if (cleanedValue !== '') {
+      setSettings({ ...settings, salary: Number(cleanedValue) });
     }
   };
 
@@ -369,31 +329,31 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-400 via-rose-400 to-pink-400 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-red-400 via-rose-400 to-pink-400 flex items-center justify-center p-2 sm:p-4">
       <CoinRain />
-      <div className="w-full max-w-4xl relative z-20">
-        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-8 mb-6">
-          <h1 className="text-4xl font-bold text-center bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-8">
+      <div className="w-full max-w-md sm:max-w-lg md:max-w-xl lg:max-w-4xl relative z-20">
+        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-4 sm:p-6 md:p-8 mb-4 sm:mb-6">
+          <h1 className="text-xl sm:text-2xl md:text-4xl font-bold text-center bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-4 sm:mb-6 md:mb-8">
             💰 今日收入计算器 💰
           </h1>
 
-          <div className="text-center mb-8">
-            <div className={`text-8xl font-black bg-clip-text text-transparent ${
+          <div className="text-center mb-4 sm:mb-6 md:mb-8">
+            <div className={`text-4xl sm:text-5xl md:text-6xl lg:text-8xl font-black bg-clip-text text-transparent ${
               isOnBreak ? 'bg-gradient-to-r from-gray-400 to-gray-500' : 'bg-gradient-to-r from-red-600 to-rose-600'
             }`}>
               {isOnBreak ? '0.00' : formatCurrency(currentEarnings)}
             </div>
-            <p className="text-gray-500 mt-2 text-lg">
+            <p className="text-gray-500 mt-2 text-sm sm:text-base md:text-lg">
               {isOnBreak ? breakType : '今日已赚 ٩(♡ε♡)۶'}
             </p>
           </div>
 
-          <div className="bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl p-6 mb-6 border-2 border-red-200">
+          <div className="bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl p-4 sm:p-6 mb-4 sm:mb-6 border-2 border-red-200">
             <div className="text-center">
-              <div className="text-3xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-2">
+              <div className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-2">
                 {formatCurrency(monthlyEarnings)}
               </div>
-              <p className="text-gray-600 text-sm">
+              <p className="text-gray-600 text-xs sm:text-sm">
                 本月累计收入 📊✨
               </p>
               <p className="text-gray-500 text-xs mt-1">
@@ -402,16 +362,16 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mb-8">
+          <div className="mb-4 sm:mb-6 md:mb-8">
             <div className="flex justify-between mb-2">
-              <span className="text-gray-600 font-medium">
+              <span className="text-gray-600 font-medium text-sm sm:text-base">
                 {isOnBreak ? '休息中...' : '工作进度'}
               </span>
-              <span className="text-red-600 font-bold">
+              <span className="text-red-600 font-bold text-sm sm:text-base">
                 {isOnBreak ? '休息ing ✨' : `${workProgress.toFixed(1)}%`}
               </span>
             </div>
-            <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-3 sm:h-4 bg-gray-200 rounded-full overflow-hidden">
               <div 
                 className={`h-full transition-all duration-1000 rounded-full ${
                   isOnBreak ? 'bg-gradient-to-r from-gray-400 to-gray-500' : 'bg-gradient-to-r from-red-500 to-rose-500'
@@ -421,8 +381,8 @@ export default function App() {
             </div>
           </div>
 
-          <div className="text-center p-6 bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl mb-6 border-2 border-red-200">
-            <p className="text-xl font-semibold text-gray-700">
+          <div className="text-center p-4 sm:p-6 bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl mb-4 sm:mb-6 border-2 border-red-200">
+            <p className="text-sm sm:text-base md:text-xl font-semibold text-gray-700">
               {isOnBreak ? getBreakMessage() : currentMessage}
             </p>
           </div>
@@ -569,3 +529,4 @@ export default function App() {
     </div>
   );
 }
+
