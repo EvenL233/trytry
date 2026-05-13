@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import CoinRain from './components/CoinRain';
 
 const DEFAULT_SETTINGS = {
@@ -25,7 +26,6 @@ export default function App() {
   const [workDaysInfo, setWorkDaysInfo] = useState({ passed: 0, total: 22 });
   const [currentMessage, setCurrentMessage] = useState('');
 
-  // 励志文案
   const getMotivationalMessage = () => {
     const messages = [
       '(ง •̀_•́)ง 干啥都可以佛系，唯独搞钱要尽力！',
@@ -62,18 +62,15 @@ export default function App() {
     ];
     return messages[Math.floor(Math.random() * messages.length)];
   };
-
-  // 薪资输入同步
+  
   useEffect(() => {
     setSalaryInput(settings.salary.toString());
   }, [settings.salary]);
 
-  // 初始文案
   useEffect(() => {
     setCurrentMessage(getMotivationalMessage());
   }, []);
 
-  // 读取本地存储
   useEffect(() => {
     try {
       const saved = localStorage.getItem('salarySettings');
@@ -85,7 +82,6 @@ export default function App() {
     }
   }, []);
 
-  // 保存本地存储
   useEffect(() => {
     try {
       localStorage.setItem('salarySettings', JSON.stringify(settings));
@@ -94,223 +90,310 @@ export default function App() {
     }
   }, [settings]);
 
-  // 工具：时间转当天时间戳
-  const getDayTimeStamp = (timeStr) => {
-    if (!timeStr) return 0;
-    const [h, m] = timeStr.split(':').map(Number);
-    const now = new Date();
-    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0);
-    return d.getTime();
-  };
-
-  // 计算当日纯工作分钟
   const calculateTotalWorkMinutes = () => {
     const { workStartTime, workEndTime, lunchBreakStart, lunchBreakEnd, dinnerBreakStart, dinnerBreakEnd } = settings;
-    const start = getDayTimeStamp(workStartTime);
-    const end = getDayTimeStamp(workEndTime);
-    let total = (end - start) / 60000;
-
+    
+    const [startHour, startMin] = workStartTime.split(':').map(Number);
+    const [endHour, endMin] = workEndTime.split(':').map(Number);
+    
+    const startTotalMinutes = startHour * 60 + startMin;
+    const endTotalMinutes = endHour * 60 + endMin;
+    
+    let totalMinutes = endTotalMinutes - startTotalMinutes;
+    
     if (lunchBreakStart && lunchBreakEnd) {
-      const lStart = getDayTimeStamp(lunchBreakStart);
-      const lEnd = getDayTimeStamp(lunchBreakEnd);
-      total -= (lEnd - lStart) / 60000;
+      const [lunchStartHour, lunchStartMin] = lunchBreakStart.split(':').map(Number);
+      const [lunchEndHour, lunchEndMin] = lunchBreakEnd.split(':').map(Number);
+      const lunchStartTotal = lunchStartHour * 60 + lunchStartMin;
+      const lunchEndTotal = lunchEndHour * 60 + lunchEndMin;
+      const lunchMinutes = lunchEndTotal - lunchStartTotal;
+      totalMinutes -= lunchMinutes;
     }
+    
     if (dinnerBreakStart && dinnerBreakEnd) {
-      const dStart = getDayTimeStamp(dinnerBreakStart);
-      const dEnd = getDayTimeStamp(dinnerBreakEnd);
-      total -= (dEnd - dStart) / 60000;
+      const [dinnerStartHour, dinnerStartMin] = dinnerBreakStart.split(':').map(Number);
+      const [dinnerEndHour, dinnerEndMin] = dinnerBreakEnd.split(':').map(Number);
+      const dinnerStartTotal = dinnerStartHour * 60 + dinnerStartMin;
+      const dinnerEndTotal = dinnerEndHour * 60 + dinnerEndMin;
+      const dinnerMinutes = dinnerEndTotal - dinnerStartTotal;
+      totalMinutes -= dinnerMinutes;
     }
-    return Math.max(0, total);
+    
+    return Math.max(0, totalMinutes);
   };
 
-  // 每秒收益
   const calculateEarningsPerSecond = () => {
     const { salary, salaryType } = settings;
-    let monthlySalary = salaryType === 'yearly' ? salary / 12 : salary;
-    const workMin = calculateTotalWorkMinutes();
-    const monthSec = workMin * 60 * 22;
-    return monthSec <= 0 ? 0 : monthlySalary / monthSec;
+    
+    let monthlySalary = salary;
+    if (salaryType === 'yearly') {
+      monthlySalary = salary / 12;
+    }
+    
+    const workMinutes = calculateTotalWorkMinutes();
+    const workSecondsPerMonth = workMinutes * 60 * 22;
+    
+    if (workSecondsPerMonth <= 0) {
+      return 0;
+    }
+    
+    return monthlySalary / workSecondsPerMonth;
   };
 
-  // 当月工作日总数
   const calculateWorkDaysInMonth = () => {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    
     let workDays = 0;
-    const last = new Date(year, month + 1, 0).getDate();
-    for (let d = 1; d <= last; d++) {
-      const w = new Date(year, month, d).getDay();
-      if (w !== 0 && w !== 6) workDays++;
+    const current = new Date(firstDay);
+    
+    while (current <= lastDay) {
+      const dayOfWeek = current.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        workDays++;
+      }
+      current.setDate(current.getDate() + 1);
     }
+    
     return workDays;
   };
 
-  // 当月已过工作日
   const calculatePassedWorkDays = () => {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
-    const day = now.getDate();
+    const currentDay = now.getDate();
+    
     let workDays = 0;
-    for (let d = 1; d < day; d++) {
-      const w = new Date(year, month, d).getDay();
-      if (w !== 0 && w !== 6) workDays++;
+    for (let day = 1; day < currentDay; day++) {
+      const date = new Date(year, month, day);
+      const dayOfWeek = date.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        workDays++;
+      }
     }
+    
     return workDays;
   };
 
-  // 核心更新逻辑（修复卡死版）
-  const updateEarnings = () => {
-    const nowStamp = Date.now();
+  const updateEarnings = (deltaTime) => {
     const { workStartTime, workEndTime, lunchBreakStart, lunchBreakEnd, dinnerBreakStart, dinnerBreakEnd } = settings;
-
-    const startStamp = getDayTimeStamp(workStartTime);
-    const endStamp = getDayTimeStamp(workEndTime);
-    const lStartStamp = getDayTimeStamp(lunchBreakStart);
-    const lEndStamp = getDayTimeStamp(lunchBreakEnd);
-    const dStartStamp = getDayTimeStamp(dinnerBreakStart);
-    const dEndStamp = getDayTimeStamp(dinnerBreakEnd);
-
-    let inBreak = false;
-    let label = '';
-
-    // 判断午休
-    if (lStartStamp && lEndStamp && nowStamp >= lStartStamp && nowStamp < lEndStamp) {
-      inBreak = true;
-      label = '🍽️ 午餐休息中...';
+    const now = new Date();
+    const [startHour, startMin] = workStartTime.split(':').map(Number);
+    const [endHour, endMin] = workEndTime.split(':').map(Number);
+    
+    const startTime = new Date(now);
+    startTime.setHours(startHour, startMin, 0, 0);
+    
+    const endTime = new Date(now);
+    endTime.setHours(endHour, endMin, 0, 0);
+    
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const startTotalMinutes = startHour * 60 + startMin;
+    const endTotalMinutes = endHour * 60 + endMin;
+    
+    let isBreak = false;
+    let breakLabel = '';
+    
+    if (lunchBreakStart && lunchBreakEnd) {
+      const [lunchStartHour, lunchStartMin] = lunchBreakStart.split(':').map(Number);
+      const [lunchEndHour, lunchEndMin] = lunchBreakEnd.split(':').map(Number);
+      const lunchStartTotal = lunchStartHour * 60 + lunchStartMin;
+      const lunchEndTotal = lunchEndHour * 60 + lunchEndMin;
+      
+      if (currentMinutes >= lunchStartTotal && currentMinutes < lunchEndTotal) {
+        isBreak = true;
+        breakLabel = '🍽️ 午餐休息中...';
+      }
     }
-    // 判断晚休
-    if (!inBreak && dStartStamp && dEndStamp && nowStamp >= dStartStamp && nowStamp < dEndStamp) {
-      inBreak = true;
-      label = '🍜 晚餐休息中...';
+    
+    if (!isBreak && dinnerBreakStart && dinnerBreakEnd) {
+      const [dinnerStartHour, dinnerStartMin] = dinnerBreakStart.split(':').map(Number);
+      const [dinnerEndHour, dinnerEndMin] = dinnerBreakEnd.split(':').map(Number);
+      const dinnerStartTotal = dinnerStartHour * 60 + dinnerStartMin;
+      const dinnerEndTotal = dinnerEndHour * 60 + dinnerEndMin;
+      
+      if (currentMinutes >= dinnerStartTotal && currentMinutes < dinnerEndTotal) {
+        isBreak = true;
+        breakLabel = '🍜 晚餐休息中...';
+      }
     }
-
-    setIsOnBreak(inBreak);
-    setBreakType(label);
-
-    const perSec = calculateEarningsPerSecond();
-    const totalWorkMin = calculateTotalWorkMinutes();
-    const totalWorkSec = totalWorkMin * 60;
-
-    // 上班前
-    if (nowStamp < startStamp) {
+    
+    setIsOnBreak(isBreak);
+    setBreakType(breakLabel);
+    
+    if (isBreak) {
       setCurrentEarnings(0);
       setWorkProgress(0);
-    } 
-    // 下班后
-    else if (nowStamp >= endStamp) {
-      setCurrentEarnings(totalWorkSec * perSec);
+    } else if (now.getTime() < startTime.getTime()) {
+      setCurrentEarnings(0);
+      setWorkProgress(0);
+    } else if (now.getTime() >= endTime.getTime()) {
+      const totalWorkMs = calculateTotalWorkMinutes() * 60 * 1000;
+      const earningsPerSecond = calculateEarningsPerSecond();
+      const totalEarnings = (totalWorkMs / 1000) * earningsPerSecond;
+      setCurrentEarnings(totalEarnings);
       setWorkProgress(100);
-    } 
-    // 工作中
-    else {
-      let passMs = nowStamp - startStamp;
-      // 扣除午休时长
-      if (lStartStamp && lEndStamp) {
-        if (nowStamp >= lEndStamp) {
-          passMs -= (lEndStamp - lStartStamp);
-        } else if (nowStamp > lStartStamp) {
-          passMs = lStartStamp - startStamp;
+    } else {
+      let totalWorkMs = endTime.getTime() - startTime.getTime();
+      let elapsedMs = now.getTime() - startTime.getTime();
+      
+      if (lunchBreakStart && lunchBreakEnd) {
+        const [lunchStartHour, lunchStartMin] = lunchBreakStart.split(':').map(Number);
+        const [lunchEndHour, lunchEndMin] = lunchBreakEnd.split(':').map(Number);
+        const lunchStartTime = new Date(now);
+        lunchStartTime.setHours(lunchStartHour, lunchStartMin, 0, 0);
+        const lunchEndTime = new Date(now);
+        lunchEndTime.setHours(lunchEndHour, lunchEndMin, 0, 0);
+        
+        if (now.getTime() >= lunchStartTime.getTime() && now.getTime() < lunchEndTime.getTime()) {
+          elapsedMs = lunchStartTime.getTime() - startTime.getTime();
+        } else if (now.getTime() >= lunchEndTime.getTime()) {
+          elapsedMs -= (lunchEndTime.getTime() - lunchStartTime.getTime());
         }
+        
+        totalWorkMs -= (lunchEndTime.getTime() - lunchStartTime.getTime());
       }
-      // 扣除晚休时长
-      if (dStartStamp && dEndStamp) {
-        if (nowStamp >= dEndStamp) {
-          passMs -= (dEndStamp - dStartStamp);
-        } else if (nowStamp > dStartStamp) {
-          passMs = dStartStamp - startStamp;
-          if (lEndStamp < dStartStamp) {
-            passMs -= (lEndStamp - lStartStamp);
+      
+      if (dinnerBreakStart && dinnerBreakEnd) {
+        const [dinnerStartHour, dinnerStartMin] = dinnerBreakStart.split(':').map(Number);
+        const [dinnerEndHour, dinnerEndMin] = dinnerBreakEnd.split(':').map(Number);
+        const dinnerStartTime = new Date(now);
+        dinnerStartTime.setHours(dinnerStartHour, dinnerStartMin, 0, 0);
+        const dinnerEndTime = new Date(now);
+        dinnerEndTime.setHours(dinnerEndHour, dinnerEndMin, 0, 0);
+        
+        if (now.getTime() >= dinnerStartTime.getTime() && now.getTime() < dinnerEndTime.getTime()) {
+          elapsedMs = dinnerStartTime.getTime() - startTime.getTime();
+          
+          if (lunchBreakStart && lunchBreakEnd) {
+            const [lunchStartHour, lunchStartMin] = lunchBreakStart.split(':').map(Number);
+            const [lunchEndHour, lunchEndMin] = lunchBreakEnd.split(':').map(Number);
+            const lunchStartTime = new Date(now);
+            lunchStartTime.setHours(lunchStartHour, lunchStartMin, 0, 0);
+            const lunchEndTime = new Date(now);
+            lunchEndTime.setHours(lunchEndHour, lunchEndMin, 0, 0);
+            if (lunchEndTime.getTime() < dinnerStartTime.getTime()) {
+              elapsedMs -= (lunchEndTime.getTime() - lunchStartTime.getTime());
+            }
           }
+        } else if (now.getTime() >= dinnerEndTime.getTime()) {
+          elapsedMs -= (dinnerEndTime.getTime() - dinnerStartTime.getTime());
         }
+        
+        totalWorkMs -= (dinnerEndTime.getTime() - dinnerStartTime.getTime());
       }
-
-      const passSec = passMs / 1000;
-      const progress = totalWorkSec > 0 ? Math.min(100, (passSec / totalWorkSec) * 100) : 0;
+      
+      const progress = totalWorkMs > 0 ? Math.min(100, (elapsedMs / totalWorkMs) * 100) : 0;
       setWorkProgress(progress);
-      setCurrentEarnings(passSec * perSec);
+      
+      const earningsPerSecond = calculateEarningsPerSecond();
+      const elapsedSeconds = elapsedMs / 1000;
+      const earnings = elapsedSeconds * earningsPerSecond;
+      
+      setCurrentEarnings(earnings);
     }
-
-    // 更新工作日
-    const totalWD = calculateWorkDaysInMonth();
-    const passWD = calculatePassedWorkDays();
-    setWorkDaysInfo({ passed: passWD, total: totalWD });
-
-    // 月收入 用函数式更新，避免卡死
-    setMonthlyEarnings(prev => {
-      const daySec = calculateTotalWorkMinutes() * 60;
-      return passWD * daySec * calculateEarningsPerSecond() + currentEarnings;
-    });
+    
+    const totalWorkDays = calculateWorkDaysInMonth();
+    const passedWorkDays = calculatePassedWorkDays();
+    setWorkDaysInfo({ passed: passedWorkDays, total: totalWorkDays });
+    
+    const earningsPerSecond = calculateEarningsPerSecond();
+    const workMinutesPerDay = calculateTotalWorkMinutes();
+    const secondsPerDay = workMinutesPerDay * 60;
+    
+    const totalWorkDaysInMonth = calculateWorkDaysInMonth();
+    const elapsedWorkDays = calculatePassedWorkDays();
+    
+    const todayEarnings = currentEarnings || 0;
+    const monthlyEarningsValue = (elapsedWorkDays * secondsPerDay * earningsPerSecond) + todayEarnings;
+    setMonthlyEarnings(monthlyEarningsValue);
   };
 
-  // 帧循环 修复卡死
   useEffect(() => {
-    let rafId;
-    const loop = () => {
-      updateEarnings();
-      rafId = requestAnimationFrame(loop);
+    let animationFrameId;
+    let lastTime = Date.now();
+    
+    const animate = () => {
+      const now = Date.now();
+      const deltaTime = now - lastTime;
+      lastTime = now;
+      
+      updateEarnings(deltaTime);
+      animationFrameId = requestAnimationFrame(animate);
     };
-    rafId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId);
+    
+    animationFrameId = requestAnimationFrame(animate);
+    
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [settings]);
 
-  // 文案轮播
   useEffect(() => {
-    const timer = setInterval(() => {
+    const messageInterval = setInterval(() => {
       setCurrentMessage(getMotivationalMessage());
-    }, 3000);
-    return () => clearInterval(timer);
+    }, 1000);
+    
+    return () => {
+      clearInterval(messageInterval);
+    };
   }, []);
 
-  // 格式化货币
   const formatCurrency = (amount) => {
     return settings.currency + amount.toFixed(2);
   };
 
-  // 薪资输入
   const handleSalaryChange = (e) => {
-    const val = e.target.value;
-    if (val === '' || /^\d+$/.test(val)) {
-      setSalaryInput(val);
-      if (val) setSettings(p => ({ ...p, salary: Number(val) }));
+    const value = e.target.value;
+    if (value === '' || /^\d+$/.test(value)) {
+      setSalaryInput(value);
+      if (value !== '') {
+        setSettings({ ...settings, salary: Number(value) });
+      }
     }
   };
 
   const handleSalaryBlur = () => {
-    if (!salaryInput) {
+    if (salaryInput === '') {
       setSalaryInput('0');
-      setSettings(p => ({ ...p, salary: 0 }));
+      setSettings({ ...settings, salary: 0 });
+    } else if (Number(salaryInput) === 0) {
+      setSalaryInput('0');
     }
   };
 
-  // 渲染UI 完全保留你原来的
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-red-400 via-rose-400 to-pink-400 flex items-center justify-center p-4">
+    return (
+    <div className="min-h-screen bg-gradient-to-br from-red-400 via-rose-400 to-pink-400 flex items-center justify-center p-2 sm:p-4">
       <CoinRain />
-      <div className="w-full max-w-4xl relative z-20">
-        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-8 mb-6">
-          <h1 className="text-4xl font-bold text-center bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-8">
+      <div className="w-full max-w-md sm:max-w-lg md:max-w-xl lg:max-w-4xl relative z-20">
+        <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl p-4 sm:p-6 md:p-8 mb-4 sm:mb-6">
+          <h1 className="text-xl sm:text-2xl md:text-4xl font-bold text-center bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-4 sm:mb-6 md:mb-8">
             💰 今日收入计算器 💰
           </h1>
 
-          <div className="text-center mb-8">
-            <div className={`text-8xl font-black bg-clip-text text-transparent ${
+          <div className="text-center mb-4 sm:mb-6 md:mb-8">
+            <div className={`text-4xl sm:text-5xl md:text-6xl lg:text-8xl font-black bg-clip-text text-transparent ${
               isOnBreak ? 'bg-gradient-to-r from-gray-400 to-gray-500' : 'bg-gradient-to-r from-red-600 to-rose-600'
             }`}>
               {isOnBreak ? '0.00' : formatCurrency(currentEarnings)}
             </div>
-            <p className="text-gray-500 mt-2 text-lg">
+            <p className="text-gray-500 mt-2 text-sm sm:text-base md:text-lg">
               {isOnBreak ? breakType : '今日已赚 ٩(♡ε♡)۶'}
             </p>
           </div>
 
-          <div className="bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl p-6 mb-6 border-2 border-red-200">
+          <div className="bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl p-4 sm:p-6 mb-4 sm:mb-6 border-2 border-red-200">
             <div className="text-center">
-              <div className="text-3xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-2">
+              <div className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent mb-2">
                 {formatCurrency(monthlyEarnings)}
               </div>
-              <p className="text-gray-600 text-sm">
+              <p className="text-gray-600 text-xs sm:text-sm">
                 本月累计收入 📊✨
               </p>
               <p className="text-gray-500 text-xs mt-1">
@@ -319,16 +402,16 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mb-8">
+          <div className="mb-4 sm:mb-6 md:mb-8">
             <div className="flex justify-between mb-2">
-              <span className="text-gray-600 font-medium">
+              <span className="text-gray-600 font-medium text-sm sm:text-base">
                 {isOnBreak ? '休息中...' : '工作进度'}
               </span>
-              <span className="text-red-600 font-bold">
+              <span className="text-red-600 font-bold text-sm sm:text-base">
                 {isOnBreak ? '休息ing ✨' : `${workProgress.toFixed(1)}%`}
               </span>
             </div>
-            <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-3 sm:h-4 bg-gray-200 rounded-full overflow-hidden">
               <div 
                 className={`h-full transition-all duration-1000 rounded-full ${
                   isOnBreak ? 'bg-gradient-to-r from-gray-400 to-gray-500' : 'bg-gradient-to-r from-red-500 to-rose-500'
@@ -338,8 +421,8 @@ export default function App() {
             </div>
           </div>
 
-          <div className="text-center p-6 bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl mb-6 border-2 border-red-200">
-            <p className="text-xl font-semibold text-gray-700">
+          <div className="text-center p-4 sm:p-6 bg-gradient-to-r from-red-50 to-rose-50 rounded-2xl mb-4 sm:mb-6 border-2 border-red-200">
+            <p className="text-sm sm:text-base md:text-xl font-semibold text-gray-700">
               {isOnBreak ? getBreakMessage() : currentMessage}
             </p>
           </div>
@@ -486,4 +569,3 @@ export default function App() {
     </div>
   );
 }
-
